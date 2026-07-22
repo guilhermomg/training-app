@@ -7,7 +7,8 @@
       "type": "dart",
       "program": "lib/main.dart",
       "deviceId": "00008110-0014152A3A07801E",
-      "flutterMode": "debug"
+      "flutterMode": "debug",
+      "toolArgs": ["--dart-define-from-file=env.json"]
     },
     {
       "name": "training_app (iPhone, profile)",
@@ -15,21 +16,24 @@
       "type": "dart",
       "program": "lib/main.dart",
       "deviceId": "00008110-0014152A3A07801E",
-      "flutterMode": "profile"
+      "flutterMode": "profile",
+      "toolArgs": ["--dart-define-from-file=env.json"]
     },
     {
       "name": "training_app (pick device, debug)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "flutterMode": "debug"
+      "flutterMode": "debug",
+      "toolArgs": ["--dart-define-from-file=env.json"]
     },
     {
       "name": "training_app (release)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "flutterMode": "release"
+      "flutterMode": "release",
+      "toolArgs": ["--dart-define-from-file=env.json"]
     }
   ]
 }

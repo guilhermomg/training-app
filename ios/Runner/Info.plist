@@ -47,5 +47,18 @@
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Training App reads your running workouts from Apple Health so it can list and analyze your sessions.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.gmg.training.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.gmg.training</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

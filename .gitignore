@@ -44,10 +44,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Environment / secrets (e.g. Supabase keys for future sync)
+# Environment / secrets
 *.env
 .env*
 !.env.example
+env.json
+!env.example.json
 
 # Flutter Version Management
 .fvm/

@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   health: ^13.3.1
   intl: ^0.20.3
+  supabase_flutter: ^2.16.0
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +60,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/google_g.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:
