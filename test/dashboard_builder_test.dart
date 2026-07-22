@@ -65,6 +65,7 @@ LoggedSession _log({required int sessionId, required String status, String? note
       cadenceAvg: null,
       effortRpe: null,
       notes: notes,
+      importedWorkoutId: null,
     );
 
 void main() {

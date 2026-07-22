@@ -12,6 +12,12 @@ class RunningWorkout {
   /// Average heart rate over the workout window, when HR samples exist.
   final int? avgHeartRateBpm;
 
+  /// Peak heart rate over the workout window, when HR samples exist.
+  final int? maxHeartRateBpm;
+
+  /// Average cadence in steps per minute, when step data exists.
+  final int? cadenceSpm;
+
   /// True for indoor/treadmill runs (HealthKit `RUNNING_TREADMILL`).
   final bool isTreadmill;
 
@@ -27,6 +33,8 @@ class RunningWorkout {
     required this.avgHeartRateBpm,
     required this.isTreadmill,
     required this.sourceName,
+    this.maxHeartRateBpm,
+    this.cadenceSpm,
   });
 
   Duration get duration => end.difference(start);
@@ -36,4 +44,8 @@ class RunningWorkout {
     if (distanceKm <= 0) return null;
     return duration.inSeconds / distanceKm;
   }
+
+  int? get avgPaceSecs => paceSecondsPerKm?.round();
+
+  String get workoutType => isTreadmill ? 'running_treadmill' : 'running';
 }

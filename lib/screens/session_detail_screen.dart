@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../models/running_workout.dart';
 import '../models/training/dashboard_view.dart';
+import '../models/training/imported_workout.dart';
 import '../models/training/training_models.dart';
+import '../services/dashboard_builder.dart';
+import '../services/health_service.dart';
+import '../services/run_matcher.dart';
+import '../services/workout_link_repository.dart';
 import '../theme/dashboard_colors.dart';
+import '../utils/formatters.dart' as fmt;
 import '../utils/session_format.dart';
+import '../widgets/dashboard/hr_chart.dart';
+import '../widgets/dashboard/route_map.dart';
+import 'run_picker_screen.dart';
 
 const _ink = DashboardColors.ink;
 const _muted = DashboardColors.muted;
@@ -53,17 +63,475 @@ class SessionDetailScreen extends StatefulWidget {
     super.key,
     required this.session,
     this.state = SessionState.upcoming,
+    this.plan,
+    this.healthService,
+    this.linkRepository,
+    this.onChanged,
+    this.previewLinked,
+    this.previewSuggestion,
   });
 
   final PlannedSession session;
   final SessionState state;
+
+  /// Needed to compute the planned date (for suggestion/picker) and to link.
+  final TrainingPlan? plan;
+
+  final HealthService? healthService;
+  final WorkoutLinkRepository? linkRepository;
+
+  /// Called after a link/unlink actually changes data, so the caller can
+  /// refresh — the dashboard only reloads when something changed.
+  final VoidCallback? onChanged;
+
+  /// Test seams: render the linked / suggestion states without HealthKit.
+  final ImportedWorkout? previewLinked;
+  final RunningWorkout? previewSuggestion;
 
   @override
   State<SessionDetailScreen> createState() => _SessionDetailScreenState();
 }
 
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
+  static const _builder = DashboardBuilder();
+  static const _matcher = RunMatcher();
+
+  late final HealthService _health = widget.healthService ?? HealthService();
+  late final WorkoutLinkRepository _repo =
+      widget.linkRepository ?? WorkoutLinkRepository();
+
   PaceUnit _unit = PaceUnit.metric;
+
+  bool _linkLoading = true;
+  bool _busy = false;
+  bool _mapExpanded = false;
+  ImportedWorkout? _linked;
+  RunningWorkout? _suggestion;
+  List<RunningWorkout>? _runs;
+
+  /// Link zone shows for any session that's already logged or whose planned
+  /// date is today-or-past (i.e. there could be a run to attach). Genuinely
+  /// future sessions have nothing to link yet.
+  bool get _showLinkZone {
+    if (widget.plan == null) return false;
+    if (widget.session.logged != null) return true;
+    final pd = _plannedDate;
+    if (pd == null) return false;
+    final now = DateTime.now();
+    return !pd.isAfter(DateTime(now.year, now.month, now.day));
+  }
+
+  DateTime? get _plannedDate =>
+      widget.plan == null ? null : _builder.plannedDate(widget.plan!, widget.session);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLink();
+  }
+
+  Future<void> _loadLink() async {
+    if (!_showLinkZone) {
+      setState(() => _linkLoading = false);
+      return;
+    }
+    // Preview injection for tests.
+    if (widget.previewLinked != null || widget.previewSuggestion != null) {
+      setState(() {
+        _linked = widget.previewLinked;
+        _suggestion = widget.previewSuggestion;
+        _linkLoading = false;
+      });
+      return;
+    }
+    try {
+      final workoutId = widget.session.logged?.importedWorkoutId;
+      if (workoutId != null) {
+        final w = await _repo.getImportedWorkout(workoutId);
+        if (!mounted) return;
+        setState(() {
+          _linked = w;
+          _linkLoading = false;
+        });
+        return;
+      }
+      // Not linked → look for a suggested run near the planned date.
+      await _health.requestAuthorization();
+      final runs = await _health.fetchRunningWorkouts();
+      final suggestion =
+          _plannedDate == null ? null : _matcher.suggestion(runs, _plannedDate!);
+      if (!mounted) return;
+      setState(() {
+        _runs = runs;
+        _suggestion = suggestion;
+        _linkLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _linkLoading = false);
+    }
+  }
+
+  Future<void> _link(RunningWorkout run) async {
+    setState(() => _busy = true);
+    try {
+      final detail = await _health.fetchWorkoutDetail(run);
+      await _repo.linkWorkout(
+        session: widget.session,
+        plan: widget.plan!,
+        workout: run,
+        detail: detail,
+      );
+      if (!mounted) return;
+      setState(() {
+        _linked = ImportedWorkout(
+          externalId: run.id,
+          sourceName: run.sourceName,
+          workoutType: run.workoutType,
+          start: run.start,
+          end: run.end,
+          durationSecs: run.duration.inSeconds,
+          distanceM: run.distanceKm * 1000,
+          avgPaceSecs: run.avgPaceSecs,
+          avgHrBpm: run.avgHeartRateBpm,
+          maxHrBpm: run.maxHeartRateBpm,
+          avgCadenceSpm: run.cadenceSpm,
+          activeEnergyKcal: run.activeEnergyKcal,
+          hrSeries: detail.hrSeries,
+          route: detail.route,
+        );
+        _suggestion = null;
+        _busy = false;
+      });
+      widget.onChanged?.call();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _snack('Could not link the run. Please try again.');
+    }
+  }
+
+  Future<void> _unlink() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlink this run?'),
+        content: const Text(
+            'This removes the run from this session. The session will no longer '
+            'show as completed. The run stays in Apple Health.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFC0392B)),
+            child: const Text('Unlink'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _busy = true);
+    try {
+      await _repo.unlink(widget.session);
+      if (!mounted) return;
+      setState(() {
+        _linked = null;
+        _busy = false;
+      });
+      widget.onChanged?.call();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _snack('Could not unlink. Please try again.');
+    }
+  }
+
+  Future<void> _openPicker() async {
+    if (_plannedDate == null) return;
+    final chosen = await Navigator.of(context).push<RunningWorkout>(
+      MaterialPageRoute(
+        builder: (_) => RunPickerScreen(
+          plannedDate: _plannedDate!,
+          healthService: widget.healthService,
+          presetRuns: widget.previewSuggestion != null ? _runs : null,
+        ),
+      ),
+    );
+    if (chosen != null) await _link(chosen);
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ---- Link zone ----
+
+  List<Widget> _buildLinkZone(double plannedMeters, int plannedSecs, SessionStep? main) {
+    if (_linkLoading) {
+      return const [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Center(
+            child: SizedBox(
+                width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        ),
+      ];
+    }
+    final plannedDistance = SessionFormat.heroDistance(plannedMeters / 1000);
+    final plannedDuration = plannedSecs > 0 ? SessionFormat.estDuration(plannedSecs) : '—';
+    final plannedPace = main == null
+        ? '—'
+        : (SessionFormat.paceRange(
+                main.objectivePaceMinSecs, main.objectivePaceMaxSecs, _unit) ??
+            '—');
+
+    final Widget child;
+    if (_linked != null) {
+      child = _linkedCard(_linked!, plannedDistance, plannedDuration, plannedPace);
+    } else if (_suggestion != null) {
+      child = _suggestionCard(_suggestion!);
+    } else {
+      child = _linkButton();
+    }
+    return [Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 4), child: child)];
+  }
+
+  Widget _linkButton() {
+    return InkWell(
+      onTap: _busy ? null : _openPicker,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFD8DEDA), width: 1.5),
+        ),
+        child: const Center(
+          child: Text('Link a run',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _ink)),
+        ),
+      ),
+    );
+  }
+
+  Widget _suggestionCard(RunningWorkout run) {
+    final hr = run.avgHeartRateBpm != null ? ' · ${run.avgHeartRateBpm} bpm avg HR' : '';
+    final subtitle =
+        '${fmt.formatDistanceKm(run.distanceKm)} km · ${fmt.formatDuration(run.duration)} · '
+        '${fmt.formatPace(run.paceSecondsPerKm)}$hr';
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Looks like you ran this',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ink)),
+          const SizedBox(height: 10),
+          Text(fmt.formatWorkoutDate(run.start),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _ink)),
+          const SizedBox(height: 2),
+          Text(subtitle, style: const TextStyle(fontSize: 12, color: _muted)),
+          const SizedBox(height: 14),
+          _greenButton('Link this run', () => _link(run)),
+          const SizedBox(height: 10),
+          Center(
+            child: GestureDetector(
+              onTap: _busy ? null : _openPicker,
+              child: const Text('Choose a different run',
+                  style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF4F8FE8))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _greenButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: _busy ? null : onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: DashboardColors.brand,
+          borderRadius: BorderRadius.circular(100),
+        ),
+        alignment: Alignment.center,
+        child: _busy
+            ? const SizedBox(
+                height: 16,
+                width: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : Text(label,
+                style: const TextStyle(
+                    fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white)),
+      ),
+    );
+  }
+
+  Widget _linkedCard(
+    ImportedWorkout w,
+    String plannedDistance,
+    String plannedDuration,
+    String plannedPace,
+  ) {
+    final actualDistance = SessionFormat.actualDistance((w.distanceM ?? 0) / 1000, _unit);
+    final actualDuration = w.durationSecs != null ? SessionFormat.duration(w.durationSecs!) : '—';
+    final actualPace =
+        w.avgPaceSecs != null ? SessionFormat.actualPace(w.avgPaceSecs!, _unit) : '—';
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('ACTUALS',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: _muted,
+                      letterSpacing: 0.6)),
+              Row(children: [
+                _textAction('Change run', const Color(0xFF4F8FE8), _openPicker),
+                const SizedBox(width: 14),
+                _textAction('Unlink', const Color(0xFFC0392B), _unlink),
+              ]),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _actualCell('Distance', actualDistance, 'plan $plannedDistance'),
+              _actualCell('Duration', actualDuration, 'plan $plannedDuration'),
+              _actualCell('Pace', actualPace, 'plan $plannedPace'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            _chip('Avg HR', w.avgHrBpm != null ? '${w.avgHrBpm} bpm' : '—'),
+            const SizedBox(width: 8),
+            _chip('Max HR', w.maxHrBpm != null ? '${w.maxHrBpm} bpm' : '—'),
+            const SizedBox(width: 8),
+            _chip('Cadence', w.avgCadenceSpm != null ? '${w.avgCadenceSpm} spm' : '—'),
+          ]),
+          if (w.hasHr) ...[
+            const SizedBox(height: 14),
+            _sectionLabel('Heart Rate'),
+            const SizedBox(height: 6),
+            HrChart(samples: w.hrSeries),
+          ],
+          if (w.hasRoute) ...[
+            const SizedBox(height: 14),
+            GestureDetector(
+              onTap: () => setState(() => _mapExpanded = !_mapExpanded),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _sectionLabel('Route'),
+                      Text(_mapExpanded ? 'Collapse' : 'Expand',
+                          style: const TextStyle(fontSize: 11, color: _muted)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: _mapExpanded ? 220 : 120,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF3F0),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: RouteMap(points: w.route, interactive: _mapExpanded),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text('Apple Health · ${w.sourceName ?? 'Apple Health'}',
+              style: const TextStyle(fontSize: 11.5, color: _muted)),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({required Widget child}) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _cardBorder),
+        ),
+        child: child,
+      );
+
+  Widget _textAction(String label, Color color, VoidCallback onTap) => GestureDetector(
+        onTap: _busy ? null : onTap,
+        child: Text(label,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: color)),
+      );
+
+  Widget _actualCell(String label, String value, String plan) => Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label.toUpperCase(),
+                style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: DashboardColors.faint,
+                    letterSpacing: 0.3)),
+            const SizedBox(height: 3),
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700, color: _ink)),
+            const SizedBox(height: 1),
+            Text(plan, style: const TextStyle(fontSize: 11, color: _muted)),
+          ],
+        ),
+      );
+
+  Widget _chip(String label, String value) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: DashboardColors.scaffold,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      color: _muted,
+                      letterSpacing: 0.3)),
+              const SizedBox(height: 2),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 13.5, fontWeight: FontWeight.w700, color: _ink)),
+            ],
+          ),
+        ),
+      );
+
+  Widget _sectionLabel(String label) => Text(label.toUpperCase(),
+      style: const TextStyle(
+          fontSize: 10.5, fontWeight: FontWeight.w700, color: _muted, letterSpacing: 0.4));
 
   List<SessionStep> get _topLevel => widget.session.steps
       .where((s) => s.parentStepId == null)
@@ -211,6 +679,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       '—'),
               zone: main?.objectiveHrZone ?? '—',
             ),
+            if (_showLinkZone) ..._buildLinkZone(meters, secs, main),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 8, 20, 6),
               child: Text(

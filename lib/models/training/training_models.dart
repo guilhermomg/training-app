@@ -123,6 +123,7 @@ class LoggedSession {
   final int? cadenceAvg;
   final int? effortRpe;
   final String? notes;
+  final int? importedWorkoutId;
 
   const LoggedSession({
     required this.id,
@@ -136,6 +137,7 @@ class LoggedSession {
     required this.cadenceAvg,
     required this.effortRpe,
     required this.notes,
+    required this.importedWorkoutId,
   });
 
   factory LoggedSession.fromMap(Map<String, dynamic> m) => LoggedSession(
@@ -151,7 +153,10 @@ class LoggedSession {
         cadenceAvg: _asInt(m['cadence_avg']),
         effortRpe: _asInt(m['effort_rpe']),
         notes: m['notes'] as String?,
+        importedWorkoutId: _asInt(m['imported_workout_id']),
       );
+
+  bool get isLinkedToWorkout => importedWorkoutId != null;
 }
 
 class PlannedSession {

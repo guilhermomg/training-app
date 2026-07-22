@@ -27,6 +27,7 @@ PlannedSession _s(int id, int week, String day, String name, String? loggedStatu
               cadenceAvg: null,
               effortRpe: null,
               notes: null,
+              importedWorkoutId: null,
             ),
     );
 

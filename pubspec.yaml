@@ -38,6 +38,7 @@ dependencies:
   intl: ^0.20.3
   supabase_flutter: ^2.16.0
   flutter_svg: ^2.3.0
+  apple_maps_flutter: ^1.4.0
 
 dev_dependencies:
   flutter_test:

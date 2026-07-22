@@ -1,6 +1,14 @@
 import 'package:health/health.dart';
 
 import '../models/running_workout.dart';
+import '../models/training/imported_workout.dart';
+
+/// Full time-series detail for a single workout (HR curve + GPS route).
+class WorkoutDetail {
+  final List<HrSample> hrSeries;
+  final List<RoutePoint> route;
+  const WorkoutDetail({required this.hrSeries, required this.route});
+}
 
 /// Thin wrapper over the `health` plugin, scoped to reading running workouts
 /// from Apple Health (HealthKit).
@@ -19,9 +27,11 @@ class HealthService {
   static const List<HealthDataType> _types = [
     HealthDataType.WORKOUT,
     HealthDataType.HEART_RATE,
+    HealthDataType.WORKOUT_ROUTE,
   ];
 
   static const List<HealthDataAccess> _access = [
+    HealthDataAccess.READ,
     HealthDataAccess.READ,
     HealthDataAccess.READ,
   ];
@@ -62,7 +72,12 @@ class HealthService {
           type == HealthWorkoutActivityType.RUNNING_TREADMILL;
       if (!isRun) continue;
 
-      final avgHr = await _averageHeartRate(point.dateFrom, point.dateTo);
+      final hr = await _heartRateStats(point.dateFrom, point.dateTo);
+      final durationSecs = point.dateTo.difference(point.dateFrom).inSeconds;
+      final steps = value.totalSteps;
+      final cadence = (steps != null && steps > 0 && durationSecs > 0)
+          ? (steps / (durationSecs / 60)).round()
+          : null;
 
       workouts.add(RunningWorkout(
         id: point.uuid,
@@ -70,7 +85,9 @@ class HealthService {
         end: point.dateTo,
         distanceKm: (value.totalDistance ?? 0) / 1000.0,
         activeEnergyKcal: value.totalEnergyBurned,
-        avgHeartRateBpm: avgHr,
+        avgHeartRateBpm: hr?.avg,
+        maxHeartRateBpm: hr?.max,
+        cadenceSpm: cadence,
         isTreadmill: type == HealthWorkoutActivityType.RUNNING_TREADMILL,
         sourceName: point.sourceName,
       ));
@@ -80,7 +97,58 @@ class HealthService {
     return workouts;
   }
 
-  Future<int?> _averageHeartRate(DateTime from, DateTime to) async {
+  /// Full HR curve + GPS route for a single workout (for the linked detail view).
+  Future<WorkoutDetail> fetchWorkoutDetail(RunningWorkout w) async {
+    await _ensureConfigured();
+
+    final hrSeries = <HrSample>[];
+    try {
+      final samples = await _health.getHealthDataFromTypes(
+        types: const [HealthDataType.HEART_RATE],
+        startTime: w.start,
+        endTime: w.end,
+      );
+      for (final s in samples) {
+        final v = s.value;
+        if (v is NumericHealthValue) {
+          hrSeries.add(HrSample(
+            s.dateFrom.millisecondsSinceEpoch,
+            v.numericValue.round(),
+          ));
+        }
+      }
+      hrSeries.sort((a, b) => a.tMs.compareTo(b.tMs));
+    } catch (_) {/* best effort */}
+
+    final route = <RoutePoint>[];
+    try {
+      final points = await _health.getHealthDataFromTypes(
+        types: const [HealthDataType.WORKOUT_ROUTE],
+        startTime: w.start,
+        endTime: w.end,
+      );
+      for (final p in points) {
+        final v = p.value;
+        if (v is WorkoutRouteHealthValue) {
+          for (final loc in v.locations) {
+            route.add(RoutePoint(
+              loc.timestamp.millisecondsSinceEpoch,
+              loc.latitude,
+              loc.longitude,
+              alt: loc.altitude,
+              spd: loc.speed,
+              acc: loc.horizontalAccuracy,
+            ));
+          }
+        }
+      }
+      route.sort((a, b) => a.tMs.compareTo(b.tMs));
+    } catch (_) {/* treadmill / no GPS */}
+
+    return WorkoutDetail(hrSeries: hrSeries, route: route);
+  }
+
+  Future<({int avg, int max})?> _heartRateStats(DateTime from, DateTime to) async {
     try {
       final samples = await _health.getHealthDataFromTypes(
         types: const [HealthDataType.HEART_RATE],
@@ -94,7 +162,8 @@ class HealthService {
           .toList();
       if (values.isEmpty) return null;
       final sum = values.reduce((a, b) => a + b);
-      return (sum / values.length).round();
+      final max = values.reduce((a, b) => a > b ? a : b);
+      return (avg: (sum / values.length).round(), max: max.round());
     } catch (_) {
       // HR is a best-effort enrichment; never fail the whole import over it.
       return null;

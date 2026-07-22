@@ -40,6 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final Set<int> _expanded = {};
   final Map<int, PlannedSession> _sessionsById = {};
   final Map<int, SessionState> _statesById = {};
+  TrainingPlan? _plan;
   String? _error;
 
   @override
@@ -79,6 +80,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (data == null) {
           _state = _State.empty;
         } else {
+          _plan = data.plan;
           _sessionsById
             ..clear()
             ..addEntries(data.sessions.map((s) => MapEntry(s.id, s)));
@@ -108,6 +110,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (_) => SessionDetailScreen(
           session: session,
           state: _statesById[sessionId] ?? SessionState.upcoming,
+          plan: _plan,
+          // Reload only when a link/unlink actually changed logged_sessions.
+          onChanged: _load,
         ),
       ),
     );
