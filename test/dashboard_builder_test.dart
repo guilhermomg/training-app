@@ -27,6 +27,8 @@ SessionStep _effort({int? min, int? max, String? zone}) => SessionStep(
       objectivePaceMinSecs: min,
       objectivePaceMaxSecs: max,
       objectiveHrZone: zone,
+      objectiveHrMinBpm: null,
+      objectiveHrMaxBpm: null,
       sortOrder: 1,
     );
 
@@ -60,22 +62,43 @@ LoggedSession _log({required int sessionId, required String status, String? note
       actualDurationSecs: 1500,
       actualPaceSecs: 300,
       actualHrAvg: 150,
+      cadenceAvg: null,
+      effortRpe: null,
       notes: notes,
     );
 
 void main() {
-  group('currentWeek', () {
-    test('week 1 on start date', () {
-      expect(_builder.currentWeek(_plan(), DateTime(2026, 4, 21)), 1);
+  TrainingData buildData(List<PlannedSession> sessions) =>
+      TrainingData(plan: _plan(), phases: const [], sessions: sessions);
+
+  group('currentWeek (progress-based)', () {
+    test('week 1 when nothing is logged', () {
+      expect(
+        _builder.currentWeek(buildData([_session(id: 1, week: 1)])),
+        1,
+      );
     });
-    test('computes elapsed weeks (day 90 -> week 13)', () {
-      expect(_builder.currentWeek(_plan(), DateTime(2026, 7, 20)), 13);
+    test('is the highest week with a logged session while incomplete', () {
+      // Week 10 has one of two sessions logged → still current.
+      final data = buildData([
+        _session(id: 1, week: 9, logged: _log(sessionId: 1, status: 'completed')),
+        _session(id: 2, week: 10, logged: _log(sessionId: 2, status: 'completed')),
+        _session(id: 3, week: 10),
+      ]);
+      expect(_builder.currentWeek(data), 10);
+    });
+    test('advances to the next week once the logged week is complete', () {
+      final data = buildData([
+        _session(id: 1, week: 10, logged: _log(sessionId: 1, status: 'completed')),
+        _session(id: 2, week: 10, logged: _log(sessionId: 2, status: 'skipped')),
+      ]);
+      expect(_builder.currentWeek(data), 11);
     });
     test('clamps to total weeks', () {
-      expect(_builder.currentWeek(_plan(), DateTime(2027, 1, 1)), 16);
-    });
-    test('clamps to at least 1 before start', () {
-      expect(_builder.currentWeek(_plan(), DateTime(2026, 4, 1)), 1);
+      final data = buildData([
+        _session(id: 1, week: 16, logged: _log(sessionId: 1, status: 'completed')),
+      ]);
+      expect(_builder.currentWeek(data), 16);
     });
   });
 

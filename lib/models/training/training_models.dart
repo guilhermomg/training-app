@@ -72,6 +72,8 @@ class SessionStep {
   final int? objectivePaceMinSecs;
   final int? objectivePaceMaxSecs;
   final String? objectiveHrZone;
+  final int? objectiveHrMinBpm;
+  final int? objectiveHrMaxBpm;
   final int sortOrder;
 
   const SessionStep({
@@ -86,6 +88,8 @@ class SessionStep {
     required this.objectivePaceMinSecs,
     required this.objectivePaceMaxSecs,
     required this.objectiveHrZone,
+    required this.objectiveHrMinBpm,
+    required this.objectiveHrMaxBpm,
     required this.sortOrder,
   });
 
@@ -101,6 +105,8 @@ class SessionStep {
         objectivePaceMinSecs: _asInt(m['objective_pace_min_secs']),
         objectivePaceMaxSecs: _asInt(m['objective_pace_max_secs']),
         objectiveHrZone: m['objective_hr_zone'] as String?,
+        objectiveHrMinBpm: _asInt(m['objective_hr_min_bpm']),
+        objectiveHrMaxBpm: _asInt(m['objective_hr_max_bpm']),
         sortOrder: (m['sort_order'] as num?)?.toInt() ?? 0,
       );
 }
@@ -114,6 +120,8 @@ class LoggedSession {
   final int? actualDurationSecs;
   final int? actualPaceSecs;
   final int? actualHrAvg;
+  final int? cadenceAvg;
+  final int? effortRpe;
   final String? notes;
 
   const LoggedSession({
@@ -125,6 +133,8 @@ class LoggedSession {
     required this.actualDurationSecs,
     required this.actualPaceSecs,
     required this.actualHrAvg,
+    required this.cadenceAvg,
+    required this.effortRpe,
     required this.notes,
   });
 
@@ -138,6 +148,8 @@ class LoggedSession {
         actualDurationSecs: _asInt(m['actual_duration_secs']),
         actualPaceSecs: _asInt(m['actual_pace_secs']),
         actualHrAvg: _asInt(m['actual_hr_avg']),
+        cadenceAvg: _asInt(m['cadence_avg']),
+        effortRpe: _asInt(m['effort_rpe']),
         notes: m['notes'] as String?,
       );
 }

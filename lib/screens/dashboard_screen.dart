@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/training/dashboard_view.dart';
+import '../models/training/training_models.dart';
 import '../services/dashboard_builder.dart';
 import '../services/training_repository.dart';
 import '../theme/dashboard_colors.dart';
 import '../widgets/dashboard/dashboard_header.dart';
 import '../widgets/dashboard/goal_card.dart';
 import '../widgets/dashboard/phase_section.dart';
+import 'session_detail_screen.dart';
 import 'workouts_screen.dart';
 
 /// Home screen after login: the training dashboard (goal + phases/weeks/sessions).
@@ -36,6 +38,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   _State _state = _State.loading;
   DashboardView? _view;
   final Set<int> _expanded = {};
+  final Map<int, PlannedSession> _sessionsById = {};
+  final Map<int, SessionState> _statesById = {};
   String? _error;
 
   @override
@@ -53,6 +57,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _expanded
       ..clear()
       ..addAll(view.initiallyExpanded);
+    _statesById
+      ..clear()
+      ..addEntries(view.phases
+          .expand((p) => p.weeks)
+          .expand((w) => w.sessions)
+          .map((s) => MapEntry(s.sessionId, s.state)));
     _state = _State.ready;
   }
 
@@ -69,6 +79,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (data == null) {
           _state = _State.empty;
         } else {
+          _sessionsById
+            ..clear()
+            ..addEntries(data.sessions.map((s) => MapEntry(s.id, s)));
           _applyView(_builder.build(data));
         }
       });
@@ -85,6 +98,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() {
       if (!_expanded.remove(weekNumber)) _expanded.add(weekNumber);
     });
+  }
+
+  void _openSession(int sessionId) {
+    final session = _sessionsById[sessionId];
+    if (session == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailScreen(
+          session: session,
+          state: _statesById[sessionId] ?? SessionState.upcoming,
+        ),
+      ),
+    );
   }
 
   Future<void> _onMenu(DashboardMenuAction action) async {
@@ -145,6 +171,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   phase: phase,
                   isExpanded: _expanded.contains,
                   onToggleWeek: _toggleWeek,
+                  onTapSession: _openSession,
                 ),
             ],
           ),

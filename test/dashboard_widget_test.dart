@@ -24,6 +24,8 @@ PlannedSession _s(int id, int week, String day, String name, String? loggedStatu
               actualDurationSecs: 1500,
               actualPaceSecs: 300,
               actualHrAvg: 150,
+              cadenceAvg: null,
+              effortRpe: null,
               notes: null,
             ),
     );

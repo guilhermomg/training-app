@@ -23,6 +23,7 @@ class GoalView {
 }
 
 class SessionView {
+  final int sessionId; // links back to the source PlannedSession
   final String type; // e.g. "Tempo Run"
   final String day; // e.g. "Wed"
   final String target; // pace · zone, or session type
@@ -30,6 +31,7 @@ class SessionView {
   final SessionState state;
 
   const SessionView({
+    required this.sessionId,
     required this.type,
     required this.day,
     required this.target,

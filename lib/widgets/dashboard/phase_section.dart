@@ -11,11 +11,13 @@ class PhaseSection extends StatelessWidget {
     required this.phase,
     required this.isExpanded,
     required this.onToggleWeek,
+    this.onTapSession,
   });
 
   final PhaseView phase;
   final bool Function(int weekNumber) isExpanded;
   final void Function(int weekNumber) onToggleWeek;
+  final void Function(int sessionId)? onTapSession;
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +41,7 @@ class PhaseSection extends StatelessWidget {
             week: week,
             expanded: isExpanded(week.number),
             onToggle: () => onToggleWeek(week.number),
+            onTapSession: onTapSession,
           ),
       ],
     );

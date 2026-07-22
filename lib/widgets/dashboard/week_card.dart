@@ -12,11 +12,13 @@ class WeekCard extends StatelessWidget {
     required this.week,
     required this.expanded,
     required this.onToggle,
+    this.onTapSession,
   });
 
   final WeekView week;
   final bool expanded;
   final VoidCallback onToggle;
+  final void Function(int sessionId)? onTapSession;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +91,9 @@ class WeekCard extends StatelessWidget {
                           SessionRow(
                             session: week.sessions[i],
                             isLast: i == week.sessions.length - 1,
+                            onTap: onTapSession == null
+                                ? null
+                                : () => onTapSession!(week.sessions[i].sessionId),
                           ),
                       ],
                     ),

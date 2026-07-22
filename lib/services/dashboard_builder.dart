@@ -15,7 +15,7 @@ class DashboardBuilder {
   DashboardView build(TrainingData data, {DateTime? now}) {
     final today = _dateOnly(now ?? DateTime.now());
     final plan = data.plan;
-    final current = currentWeek(plan, today);
+    final current = currentWeek(data);
 
     // Group sessions by week number.
     final byWeek = <int, List<PlannedSession>>{};
@@ -72,6 +72,7 @@ class DashboardBuilder {
   SessionView buildSession(PlannedSession s, TrainingPlan plan, DateTime today) {
     final state = sessionState(s, plan, today);
     return SessionView(
+      sessionId: s.id,
       type: s.name,
       day: prettyDay(s.dayOfWeek),
       target: targetLine(s),
@@ -204,12 +205,20 @@ class DashboardBuilder {
 
   // ---- Dates ----
 
-  int currentWeek(TrainingPlan plan, DateTime today) {
-    final start = plan.startDate;
-    if (start == null) return 1;
-    final days = _dateOnly(today).difference(_dateOnly(start)).inDays;
-    final week = (days / 7).floor() + 1;
-    return week.clamp(1, plan.totalWeeks == 0 ? week : plan.totalWeeks);
+  int currentWeek(TrainingData data) {
+    final totalWeeks = data.plan.totalWeeks;
+    var maxLoggedWeek = 0;
+    for (final s in data.sessions) {
+      if (s.logged != null && s.weekNumber > maxLoggedWeek) {
+        maxLoggedWeek = s.weekNumber;
+      }
+    }
+    if (maxLoggedWeek == 0) return 1;
+
+    final weekSessions = data.sessions.where((s) => s.weekNumber == maxLoggedWeek);
+    final allLogged = weekSessions.every((s) => s.logged != null);
+    final week = allLogged ? maxLoggedWeek + 1 : maxLoggedWeek;
+    return totalWeeks == 0 ? week : week.clamp(1, totalWeeks);
   }
 
   DateTime? plannedDate(TrainingPlan plan, PlannedSession s) {

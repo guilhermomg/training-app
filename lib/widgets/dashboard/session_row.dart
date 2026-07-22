@@ -5,15 +5,21 @@ import '../../theme/dashboard_colors.dart';
 
 /// One session line inside an expanded week card.
 class SessionRow extends StatelessWidget {
-  const SessionRow({super.key, required this.session, this.isLast = false});
+  const SessionRow({
+    super.key,
+    required this.session,
+    this.isLast = false,
+    this.onTap,
+  });
 
   final SessionView session;
   final bool isLast;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final st = DashboardColors.sessionState(session.state);
-    return Container(
+    final row = Container(
       padding: const EdgeInsets.symmetric(vertical: 11),
       decoration: BoxDecoration(
         border: isLast
@@ -96,6 +102,9 @@ class SessionRow extends StatelessWidget {
         ],
       ),
     );
+
+    if (onTap == null) return row;
+    return InkWell(onTap: onTap, child: row);
   }
 }
 
